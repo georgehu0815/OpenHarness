@@ -46,8 +46,8 @@ def _make_azure_client(chunks: list) -> MagicMock:
 @pytest.fixture
 def patched_identity():
     """Patch azure.identity so no real credential is created."""
-    with patch("openharness.api.azure_provider.DefaultAzureCredential") as mock_cred, \
-         patch("openharness.api.azure_provider.get_bearer_token_provider") as mock_tp:
+    with patch("azure.identity.DefaultAzureCredential") as mock_cred, \
+         patch("azure.identity.get_bearer_token_provider") as mock_tp:
         mock_tp.return_value = MagicMock()
         yield mock_cred, mock_tp
 

@@ -8,8 +8,6 @@ import logging
 import os
 from typing import Any, AsyncIterator
 
-from azure.identity import DefaultAzureCredential, get_bearer_token_provider
-
 from openharness.api.client import (
     ApiMessageCompleteEvent,
     ApiMessageRequest,
@@ -51,6 +49,8 @@ class AzureOpenAIClient:
     """
 
     def __init__(self, *, timeout: float | None = None) -> None:
+        from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+
         endpoint = os.getenv("ENDPOINT_URL")
         if not endpoint:
             raise ValueError(

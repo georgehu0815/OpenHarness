@@ -42,8 +42,8 @@ class TestClientFactory:
             profiles=default_provider_profiles(),
         ).materialize_active_profile()
 
-        with patch("openharness.api.azure_provider.DefaultAzureCredential"), \
-             patch("openharness.api.azure_provider.get_bearer_token_provider"), \
+        with patch("azure.identity.DefaultAzureCredential"), \
+             patch("azure.identity.get_bearer_token_provider"), \
              patch.dict(os.environ, {"ENDPOINT_URL": "https://test.openai.azure.com/"}):
             client = _resolve_api_client_from_settings(settings)
 
