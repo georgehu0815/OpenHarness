@@ -218,7 +218,7 @@ class AzureOpenAIClient:
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:
         status = getattr(exc, "status_code", None)
-        if status and status in {429, 500, 502, 503}:
+        if status == 429 or (isinstance(status, int) and 500 <= status <= 599):
             return True
         if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
             return True
