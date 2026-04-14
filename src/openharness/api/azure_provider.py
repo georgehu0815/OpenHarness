@@ -230,6 +230,8 @@ class AzureOpenAIClient:
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:
+        # Cover all 5xx codes (not just 500/502/503) because Azure infrastructure
+        # returns a wider variety of transient 5xx responses (e.g. 504, 507, 529).
         status = getattr(exc, "status_code", None)
         if status == 429 or (isinstance(status, int) and 500 <= status <= 599):
             return True

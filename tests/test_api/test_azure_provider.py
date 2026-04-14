@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -224,6 +224,7 @@ class TestAzureOpenAIClientStreaming:
         mock_client = MagicMock()
         mock_client.chat.completions.create = fail_create
         client._client = mock_client
+        monkeypatch.setattr("openharness.api.azure_provider.asyncio.sleep", AsyncMock())
 
         with pytest.raises(RequestFailure):
             async for _ in client.stream_message(self._make_request()):
