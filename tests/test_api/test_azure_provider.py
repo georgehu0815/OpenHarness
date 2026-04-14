@@ -232,3 +232,25 @@ class TestAzureOpenAIClientStreaming:
 
         # Should have retried MAX_RETRIES+1 times (4 total)
         assert call_count == 4
+
+
+class TestAzureProviderRegistry:
+    def test_azure_spec_in_providers(self):
+        from openharness.api.registry import PROVIDERS
+        names = [s.name for s in PROVIDERS]
+        assert "azure_openai" in names
+
+    def test_azure_spec_detects_by_base_url(self):
+        from openharness.api.registry import detect_provider_from_registry
+        spec = detect_provider_from_registry(
+            model="",
+            base_url="https://myhub.openai.azure.com/",
+        )
+        assert spec is not None
+        assert spec.name == "azure_openai"
+
+    def test_azure_spec_detects_by_keyword(self):
+        from openharness.api.registry import detect_provider_from_registry
+        spec = detect_provider_from_registry(model="azure/gpt-4o")
+        assert spec is not None
+        assert spec.name == "azure_openai"

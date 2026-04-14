@@ -322,6 +322,20 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_local=False,
         is_oauth=False,
     ),
+    # Azure OpenAI (Entra ID / Managed Identity — no API key)
+    ProviderSpec(
+        name="azure_openai",
+        keywords=("azure",),
+        env_key="ENDPOINT_URL",
+        display_name="Azure OpenAI",
+        backend_type="azure_openai",
+        default_base_url="",
+        detect_by_key_prefix="",
+        detect_by_base_keyword="openai.azure.com",
+        is_gateway=False,
+        is_local=False,
+        is_oauth=False,
+    ),
     # === Local deployments (matched by keyword or base_url) =================
     # Ollama
     ProviderSpec(
@@ -380,6 +394,15 @@ def _match_by_model(model: str) -> ProviderSpec | None:
     for spec in std_specs:
         if model_prefix and normalized_prefix == spec.name:
             return spec
+
+    # If a model prefix exists, prioritize specs with matching keywords in the prefix
+    if model_prefix:
+        for spec in std_specs:
+            if any(
+                kw == model_prefix or kw.replace("-", "_") == normalized_prefix
+                for kw in spec.keywords
+            ):
+                return spec
 
     # Fall back to keyword scan
     for spec in std_specs:
