@@ -804,6 +804,10 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     if provider:
         updates["provider"] = provider
 
+    active_profile = os.environ.get("OPENHARNESS_ACTIVE_PROFILE")
+    if active_profile:
+        updates["active_profile"] = active_profile
+
     sandbox_enabled = os.environ.get("OPENHARNESS_SANDBOX_ENABLED")
     sandbox_fail = os.environ.get("OPENHARNESS_SANDBOX_FAIL_IF_UNAVAILABLE")
     sandbox_backend = os.environ.get("OPENHARNESS_SANDBOX_BACKEND")
@@ -841,6 +845,8 @@ def load_settings(config_path: Path | None = None) -> Settings:
     Returns:
         Settings instance with file values merged over defaults.
     """
+    from dotenv import load_dotenv
+    load_dotenv(override=False)   # load .env from CWD; shell env takes precedence
     if config_path is None:
         from openharness.config.paths import get_config_file_path
 
