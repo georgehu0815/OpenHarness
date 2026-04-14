@@ -1,5 +1,6 @@
 """API exports."""
 
+from openharness.api.azure_provider import AzureOpenAIClient
 from openharness.api.client import AnthropicApiClient
 from openharness.api.codex_client import CodexApiClient
 from openharness.api.copilot_client import CopilotClient
@@ -10,6 +11,7 @@ from openharness.api.usage import UsageSnapshot
 
 __all__ = [
     "AnthropicApiClient",
+    "AzureOpenAIClient",
     "CodexApiClient",
     "CopilotClient",
     "OpenAICompatibleClient",

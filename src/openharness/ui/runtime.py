@@ -151,6 +151,9 @@ def _resolve_api_client_from_settings(settings) -> SupportsStreamingMessages:
             claude_oauth=True,
             auth_token_resolver=lambda: settings.resolve_auth().value,
         )
+    if settings.provider == "azure_openai":
+        from openharness.api.azure_provider import AzureOpenAIClient
+        return AzureOpenAIClient(timeout=settings.timeout)
     if settings.api_format == "openai":
         auth = _safe_resolve_auth()
         return OpenAICompatibleClient(
