@@ -232,6 +232,13 @@ def default_provider_profiles() -> dict[str, ProviderProfile]:
             default_model="gemini-2.5-flash",
             base_url="https://generativelanguage.googleapis.com/v1beta/openai",
         ),
+        "azure-openai": ProviderProfile(
+            label="Azure OpenAI",
+            provider="azure_openai",
+            api_format="openai",
+            auth_source="azure_identity",
+            default_model="gpt-5.4-mini",
+        ),
     }
 
 
@@ -319,6 +326,7 @@ def auth_source_provider_name(auth_source: str) -> str:
         "vertex_api_key": "vertex",
         "moonshot_api_key": "moonshot",
         "gemini_api_key": "gemini",
+        "azure_identity": "azure_openai",
     }
     return mapping.get(auth_source, auth_source)
 
@@ -610,6 +618,14 @@ class Settings(BaseModel):
         profile_name, profile = self.resolve_profile()
         provider = profile.provider.strip()
         auth_source = profile.auth_source.strip() or default_auth_source_for_provider(provider, profile.api_format)
+        if auth_source == "azure_identity":
+            return ResolvedAuth(
+                provider="azure_openai",
+                auth_kind="azure_identity",
+                value="identity",
+                source="azure_identity",
+                state="configured",
+            )
         if auth_source in {"codex_subscription", "claude_subscription"}:
             from openharness.auth.external import (
                 is_third_party_anthropic_endpoint,
