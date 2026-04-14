@@ -132,6 +132,7 @@ class TestLoadSaveSettings:
         monkeypatch.delenv("OPENHARNESS_BASE_URL", raising=False)
         monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
         monkeypatch.delenv("OPENHARNESS_MODEL", raising=False)
+        monkeypatch.delenv("OPENHARNESS_ACTIVE_PROFILE", raising=False)
         path = tmp_path / "nonexistent.json"
         s = load_settings(path)
         assert s == Settings().materialize_active_profile()
@@ -166,7 +167,8 @@ class TestLoadSaveSettings:
         assert loaded.model == original.model
         assert loaded.verbose == original.verbose
 
-    def test_load_migrates_flat_provider_settings_to_profile(self, tmp_path: Path):
+    def test_load_migrates_flat_provider_settings_to_profile(self, tmp_path: Path, monkeypatch):
+        monkeypatch.delenv("OPENHARNESS_ACTIVE_PROFILE", raising=False)
         path = tmp_path / "settings.json"
         path.write_text(
             json.dumps(

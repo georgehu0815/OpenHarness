@@ -1275,6 +1275,8 @@ def main(
     ),
 ) -> None:
     """Start an interactive session or run a single prompt."""
+    from dotenv import load_dotenv
+    load_dotenv(override=False)
     if ctx.invoked_subcommand is not None:
         return
 

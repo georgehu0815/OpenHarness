@@ -845,8 +845,6 @@ def load_settings(config_path: Path | None = None) -> Settings:
     Returns:
         Settings instance with file values merged over defaults.
     """
-    from dotenv import load_dotenv
-    load_dotenv(override=False)   # load .env from CWD; shell env takes precedence
     if config_path is None:
         from openharness.config.paths import get_config_file_path
 
