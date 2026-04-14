@@ -28,7 +28,7 @@ from openharness.engine.messages import ContentBlock, ConversationMessage, TextB
 
 log = logging.getLogger(__name__)
 
-_ENDPOINT_DEFAULT = "https://datacopilothub8882317788.openai.azure.com/"
+# _ENDPOINT_DEFAULT intentionally removed — ENDPOINT_URL must be set explicitly
 _DEPLOYMENT_DEFAULT = "gpt-5.4-mini"
 _API_VERSION = "2025-01-01-preview"
 _COGNITIVE_SERVICES_SCOPE = "https://cognitiveservices.azure.com/.default"
@@ -46,20 +46,24 @@ class AzureOpenAIClient:
     the managed identity of the host (``az login`` for local dev).
 
     Configuration via environment variables:
-        ENDPOINT_URL    — Azure OpenAI endpoint URL
-                          (default: https://datacopilothub8882317788.openai.azure.com/)
+        ENDPOINT_URL    — Azure OpenAI endpoint URL (required)
         DEPLOYMENT_NAME — deployment / model name (default: gpt-5.4-mini)
     """
 
     def __init__(self, *, timeout: float | None = None) -> None:
-        self._endpoint = os.getenv("ENDPOINT_URL", _ENDPOINT_DEFAULT)
+        endpoint = os.getenv("ENDPOINT_URL")
+        if not endpoint:
+            raise ValueError(
+                "ENDPOINT_URL environment variable is required for AzureOpenAIClient. "
+                "Set it to your Azure OpenAI endpoint, e.g. https://<name>.openai.azure.com/"
+            )
+        self._endpoint = endpoint
         self._deployment = os.getenv("DEPLOYMENT_NAME", _DEPLOYMENT_DEFAULT)
         self._timeout = timeout
         self._token_provider = get_bearer_token_provider(
             DefaultAzureCredential(),
             _COGNITIVE_SERVICES_SCOPE,
         )
-        # Lazy — created on first call to avoid event-loop binding at import time
         self._client: Any = None
 
     def _get_client(self) -> Any:
@@ -144,11 +148,13 @@ class AzureOpenAIClient:
             params.pop("stream_options", None)
 
         collected_content = ""
+        collected_reasoning = ""
         collected_tool_calls: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
         usage_data: dict[str, int] = {}
 
-        async for chunk in self._get_client().chat.completions.create(**params):
+        stream = await self._get_client().chat.completions.create(**params)
+        async for chunk in stream:
             if not chunk.choices:
                 if chunk.usage:
                     usage_data = {
@@ -165,6 +171,11 @@ class AzureOpenAIClient:
             if delta.content:
                 collected_content += delta.content
                 yield ApiTextDeltaEvent(text=delta.content)
+
+            # Accumulate reasoning_content from thinking models (not shown to user)
+            reasoning_piece = getattr(delta, "reasoning_content", None) or ""
+            if reasoning_piece:
+                collected_reasoning += reasoning_piece
 
             if delta.tool_calls:
                 for tc_delta in delta.tool_calls:
@@ -205,6 +216,8 @@ class AzureOpenAIClient:
             content.append(ToolUseBlock(id=tc["id"], name=tc["name"], input=args))
 
         final_message = ConversationMessage(role="assistant", content=content)
+        if collected_reasoning:
+            final_message._reasoning = collected_reasoning  # type: ignore[attr-defined]
 
         yield ApiMessageCompleteEvent(
             message=final_message,

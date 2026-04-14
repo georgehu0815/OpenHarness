@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from openharness.api.client import ApiMessageRequest
-from openharness.engine.messages import ConversationMessage, TextBlock, ToolUseBlock
+from openharness.engine.messages import ConversationMessage, TextBlock
 
 
 def _make_text_chunk(text: str, finish: str | None = None):
@@ -34,11 +33,13 @@ def _make_azure_client(chunks: list) -> MagicMock:
     """Return a mock AsyncAzureOpenAI that streams the given chunks."""
     mock_client = MagicMock()
 
-    async def fake_stream(*_args, **_kwargs):
-        for c in chunks:
-            yield c
+    async def fake_create(*_args, **_kwargs):
+        async def _gen():
+            for c in chunks:
+                yield c
+        return _gen()
 
-    mock_client.chat.completions.create = fake_stream
+    mock_client.chat.completions.create = fake_create
     return mock_client
 
 
@@ -59,18 +60,20 @@ class TestAzureOpenAIClientInit:
         assert client._endpoint == "https://myendpoint.openai.azure.com/"
 
     def test_reads_deployment_from_env(self, monkeypatch, patched_identity):
+        monkeypatch.setenv("ENDPOINT_URL", "https://myendpoint.openai.azure.com/")
         monkeypatch.setenv("DEPLOYMENT_NAME", "my-deployment")
         from openharness.api.azure_provider import AzureOpenAIClient
         client = AzureOpenAIClient()
         assert client._deployment == "my-deployment"
 
-    def test_default_endpoint_fallback(self, monkeypatch, patched_identity):
+    def test_raises_when_endpoint_not_set(self, monkeypatch, patched_identity):
         monkeypatch.delenv("ENDPOINT_URL", raising=False)
-        from openharness.api.azure_provider import AzureOpenAIClient, _ENDPOINT_DEFAULT
-        client = AzureOpenAIClient()
-        assert client._endpoint == _ENDPOINT_DEFAULT
+        from openharness.api.azure_provider import AzureOpenAIClient
+        with pytest.raises(ValueError, match="ENDPOINT_URL"):
+            AzureOpenAIClient()
 
     def test_default_deployment_fallback(self, monkeypatch, patched_identity):
+        monkeypatch.setenv("ENDPOINT_URL", "https://myendpoint.openai.azure.com/")
         monkeypatch.delenv("DEPLOYMENT_NAME", raising=False)
         from openharness.api.azure_provider import AzureOpenAIClient, _DEPLOYMENT_DEFAULT
         client = AzureOpenAIClient()
@@ -143,13 +146,15 @@ class TestAzureOpenAIClientStreaming:
 
         called_model = None
 
-        async def fake_stream(**kwargs):
+        async def fake_create(**kwargs):
             nonlocal called_model
             called_model = kwargs.get("model")
-            yield _make_text_chunk("ok", finish="stop")
+            async def _gen():
+                yield _make_text_chunk("ok", finish="stop")
+            return _gen()
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create = fake_stream
+        mock_client.chat.completions.create = fake_create
         client._client = mock_client
 
         request = ApiMessageRequest(
@@ -171,14 +176,58 @@ class TestAzureOpenAIClientStreaming:
         error = Exception("unauthorized")
         error.status_code = 401  # type: ignore[attr-defined]
 
-        async def fail_stream(**_kwargs):
+        async def fail_create(**_kwargs):
             raise error
-            yield  # make it an async generator
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create = fail_stream
+        mock_client.chat.completions.create = fail_create
         client._client = mock_client
 
         with pytest.raises(AuthenticationFailure):
             async for _ in client.stream_message(self._make_request()):
                 pass
+
+    @pytest.mark.asyncio
+    async def test_translates_403_to_authentication_failure(self, monkeypatch, patched_identity):
+        from openharness.api.errors import AuthenticationFailure
+        client = self._make_client(monkeypatch, patched_identity)
+
+        error = Exception("forbidden")
+        error.status_code = 403  # type: ignore[attr-defined]
+
+        async def fail_create(**_kwargs):
+            raise error
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = fail_create
+        client._client = mock_client
+
+        with pytest.raises(AuthenticationFailure):
+            async for _ in client.stream_message(self._make_request()):
+                pass
+
+    @pytest.mark.asyncio
+    async def test_translates_500_to_request_failure(self, monkeypatch, patched_identity):
+        from openharness.api.errors import RequestFailure
+        client = self._make_client(monkeypatch, patched_identity)
+
+        error = Exception("server error")
+        error.status_code = 500  # type: ignore[attr-defined]
+
+        call_count = 0
+
+        async def fail_create(**_kwargs):
+            nonlocal call_count
+            call_count += 1
+            raise error
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = fail_create
+        client._client = mock_client
+
+        with pytest.raises(RequestFailure):
+            async for _ in client.stream_message(self._make_request()):
+                pass
+
+        # Should have retried MAX_RETRIES+1 times (4 total)
+        assert call_count == 4
