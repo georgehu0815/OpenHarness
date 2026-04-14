@@ -15,6 +15,7 @@ _AUTH_KIND: dict[str, str] = {
     "copilot": "oauth_device",
     "openai_codex": "external_oauth",
     "anthropic_claude": "external_oauth",
+    "azure_openai": "azure_identity",
 }
 
 _VOICE_REASON: dict[str, str] = {
@@ -25,6 +26,7 @@ _VOICE_REASON: dict[str, str] = {
     "copilot": "voice mode is not supported for GitHub Copilot",
     "openai_codex": "voice mode is not supported for Codex subscription auth",
     "anthropic_claude": "voice mode is not supported for Claude subscription auth",
+    "azure_openai": "voice mode is not supported for Azure OpenAI",
 }
 
 
@@ -53,6 +55,13 @@ def detect_provider(settings: Settings) -> ProviderInfo:
             auth_kind="external_oauth",
             voice_supported=False,
             voice_reason=_VOICE_REASON["anthropic_claude"],
+        )
+    if settings.provider == "azure_openai":
+        return ProviderInfo(
+            name="azure_openai",
+            auth_kind="azure_identity",
+            voice_supported=False,
+            voice_reason=_VOICE_REASON["azure_openai"],
         )
     if settings.api_format == "copilot":
         return ProviderInfo(
@@ -95,6 +104,8 @@ def detect_provider(settings: Settings) -> ProviderInfo:
 
 def auth_status(settings: Settings) -> str:
     """Return a compact auth status string."""
+    if settings.provider == "azure_openai":
+        return "identity (DefaultAzureCredential)"
     if settings.api_format == "copilot":
         from openharness.api.copilot_auth import load_copilot_auth
 
