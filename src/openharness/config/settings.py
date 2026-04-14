@@ -863,9 +863,20 @@ def load_settings(config_path: Path | None = None) -> Settings:
                     "profiles": merged_profiles,
                 }
             )
+        # Apply active_profile env override BEFORE materializing so the correct
+        # profile's provider/model/etc are resolved.
+        profile_override = os.environ.get("OPENHARNESS_ACTIVE_PROFILE")
+        if profile_override:
+            settings = settings.model_copy(update={"active_profile": profile_override})
         return _apply_env_overrides(settings.materialize_active_profile())
 
-    return _apply_env_overrides(Settings().materialize_active_profile())
+    # Apply active_profile env override BEFORE materializing so the correct
+    # profile's provider/model/etc are resolved.
+    base = Settings()
+    profile_override = os.environ.get("OPENHARNESS_ACTIVE_PROFILE")
+    if profile_override:
+        base = base.model_copy(update={"active_profile": profile_override})
+    return _apply_env_overrides(base.materialize_active_profile())
 
 
 def save_settings(settings: Settings, config_path: Path | None = None) -> None:
