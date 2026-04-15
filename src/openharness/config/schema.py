@@ -31,6 +31,8 @@ class BaseChannelConfig(_CompatModel):
 class TelegramConfig(BaseChannelConfig):
     token: str = ""
     chat_id: str | None = None
+    reply_to_message: bool = True
+    proxy: str | None = None
 
 
 class SlackConfig(BaseChannelConfig):

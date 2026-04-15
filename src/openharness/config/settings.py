@@ -733,6 +733,16 @@ class Settings(BaseModel):
         # Strip ANSI escape sequences from model name if present
         if "model" in updates and isinstance(updates["model"], str):
             updates["model"] = strip_ansi_escape_sequences(updates["model"])
+        # permission_mode is a flat override that maps to self.permission.mode;
+        # Settings has no top-level permission_mode field so model_copy would
+        # silently drop it — translate it explicitly.
+        if "permission_mode" in updates:
+            raw_mode = updates.pop("permission_mode")
+            try:
+                mode = PermissionMode(raw_mode)
+            except ValueError:
+                mode = PermissionMode.DEFAULT
+            updates["permission"] = self.permission.model_copy(update={"mode": mode})
         merged = self.model_copy(update=updates)
         if not updates:
             return merged

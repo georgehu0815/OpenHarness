@@ -393,6 +393,8 @@ def main(
     continue_session: bool = typer.Option(False, "--continue", help="Continue the latest ohmo session"),
 ) -> None:
     """Launch the ohmo app or invoke a subcommand."""
+    from dotenv import load_dotenv
+    load_dotenv(override=False)
     if ctx.invoked_subcommand is not None:
         return
 

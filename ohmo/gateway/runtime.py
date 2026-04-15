@@ -35,11 +35,11 @@ from ohmo.workspace import get_plugins_dir, get_skills_dir, initialize_workspace
 logger = logging.getLogger(__name__)
 
 _CHANNEL_THINKING_PHRASES = (
-    "🤔 想一想…",
-    "🧠 琢磨中…",
-    "✨ 整理一下思路…",
-    "🔎 看看这个…",
-    "🪄 捋一捋线索…",
+    "🤔 Thinking…",
+    "🧠 Working through it…",
+    "✨ Pulling the pieces together…",
+    "🔎 Looking into it…",
+    "🪄 Following the thread…",
 )
 
 _CHANNEL_THINKING_PHRASES_EN = (
@@ -83,6 +83,7 @@ class OhmoSessionRuntimePool:
         self._max_turns = max_turns
         self._workspace = initialize_workspace(workspace)
         self._gateway_config = load_gateway_config(self._workspace)
+        self._permission_mode = self._gateway_config.permission_mode or None
         self._session_backend = OhmoSessionBackend(self._workspace)
         self._bundles: dict[str, RuntimeBundle] = {}
 
@@ -133,6 +134,7 @@ class OhmoSessionRuntimePool:
             restore_tool_metadata=snapshot.get("tool_metadata") if snapshot else None,
             extra_skill_dirs=(str(get_skills_dir(self._workspace)),),
             extra_plugin_roots=(str(get_plugins_dir(self._workspace)),),
+            permission_mode=self._permission_mode,
         )
         if snapshot and snapshot.get("session_id"):
             bundle.session_id = str(snapshot["session_id"])
@@ -502,6 +504,7 @@ class OhmoSessionRuntimePool:
             restore_tool_metadata=getattr(bundle.engine, "tool_metadata", {}) or {},
             extra_skill_dirs=(str(get_skills_dir(self._workspace)),),
             extra_plugin_roots=(str(get_plugins_dir(self._workspace)),),
+            permission_mode=self._permission_mode,
         )
         refreshed.session_id = prior_session_id
         await start_runtime(refreshed)

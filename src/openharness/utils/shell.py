@@ -34,14 +34,14 @@ def resolve_shell_command(
     if bash:
         argv = [bash, "-lc", command]
         if prefer_pty:
-            wrapped = _wrap_command_with_script(argv)
+            wrapped = _wrap_command_with_script(argv, platform_name=resolved_platform)
             if wrapped is not None:
                 return wrapped
         return argv
     shell = shutil.which("sh") or os.environ.get("SHELL") or "/bin/sh"
     argv = [shell, "-lc", command]
     if prefer_pty:
-        wrapped = _wrap_command_with_script(argv)
+        wrapped = _wrap_command_with_script(argv, platform_name=resolved_platform)
         if wrapped is not None:
             return wrapped
     return argv
@@ -104,13 +104,33 @@ async def create_shell_subprocess(
     return process
 
 
-def _wrap_command_with_script(argv: list[str]) -> list[str] | None:
+def _wrap_command_with_script(
+    argv: list[str],
+    *,
+    platform_name: PlatformName | None = None,
+) -> list[str] | None:
+    # Skip PTY wrapping when stdin is not a real TTY (e.g. VS Code extension
+    # socket, CI pipes). script(1) fails with "tcgetattr/ioctl: Operation not
+    # supported on socket" in those environments.
+    try:
+        if not os.isatty(0):
+            return None
+    except OSError:
+        return None
+
     script = shutil.which("script")
     if script is None:
         return None
-    if len(argv) >= 3 and argv[1] == "-lc":
-        return [script, "-qefc", argv[2], "/dev/null"]
-    return None
+    if not (len(argv) >= 3 and argv[1] == "-lc"):
+        return None
+    resolved = platform_name or get_platform()
+    if resolved == "macos":
+        # BSD script (macOS): script [-flags] logfile [command args...]
+        # No -c flag; command is passed as positional args after the logfile.
+        return [script, "-qe", "/dev/null"] + argv
+    # GNU script (Linux/WSL): script -qefc "command" logfile
+    # -f flushes output after each write for real-time streaming.
+    return [script, "-qefc", argv[2], "/dev/null"]
 
 
 async def _cleanup_after_exit(process: asyncio.subprocess.Process, cleanup_path: Path) -> None:
