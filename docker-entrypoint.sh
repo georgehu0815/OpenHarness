@@ -26,10 +26,41 @@ if [ -n "$OHMO_TELEGRAM_TOKEN" ]; then
     PROVIDER="${OHMO_PROVIDER_PROFILE:-azure-openai}"
     PERMISSION="${OHMO_PERMISSION_MODE:-full_auto}"
 
+    # Build enabled_channels list
+    ENABLED_CHANNELS='"telegram"'
+    CHANNEL_CONFIGS='"telegram": {
+      "allow_from": ["*"],
+      "token": "'"$OHMO_TELEGRAM_TOKEN"'",
+      "reply_to_message": true
+    }'
+
+    if [ -n "$WEBUI_PORT" ]; then
+        ENABLED_CHANNELS="$ENABLED_CHANNELS, \"webui\""
+        CORS_LIST="[]"
+        if [ -n "$WEBUI_CORS_ORIGINS" ]; then
+            # Convert comma-separated string to JSON array
+            CORS_LIST=$(echo "$WEBUI_CORS_ORIGINS" | awk -F',' '{
+                printf "[";
+                for(i=1;i<=NF;i++) {
+                    gsub(/^ +| +$/, "", $i);
+                    printf "\"" $i "\"";
+                    if(i<NF) printf ",";
+                }
+                printf "]"
+            }')
+        fi
+        CHANNEL_CONFIGS="$CHANNEL_CONFIGS,
+    \"webui\": {
+      \"port\": $WEBUI_PORT,
+      \"allow_from\": [\"*\"],
+      \"cors_origins\": $CORS_LIST
+    }"
+    fi
+
     cat > "$CONFIG_FILE" <<EOF
 {
   "provider_profile": "$PROVIDER",
-  "enabled_channels": ["telegram"],
+  "enabled_channels": [$ENABLED_CHANNELS],
   "session_routing": "chat-thread",
   "send_progress": true,
   "send_tool_hints": true,
@@ -39,11 +70,7 @@ if [ -n "$OHMO_TELEGRAM_TOKEN" ]; then
   "allowed_remote_admin_commands": [],
   "log_level": "${OHMO_LOG_LEVEL:-INFO}",
   "channel_configs": {
-    "telegram": {
-      "allow_from": ["*"],
-      "token": "$OHMO_TELEGRAM_TOKEN",
-      "reply_to_message": true
-    }
+    $CHANNEL_CONFIGS
   }
 }
 EOF
