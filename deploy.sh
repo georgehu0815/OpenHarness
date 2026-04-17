@@ -20,10 +20,6 @@ else
     echo "  No skills found at $SKILLS_SRC — building with empty skills/"
 fi
 
-# az acr build \
-#   --registry acragentflowdev \
-#   --image ohmo-gateway:latest \
-#   .
 
 
 # -- Stage tpm CLI into build context -------------------------------------
@@ -84,15 +80,21 @@ az containerapp secret set \
   --secrets \
       telegram-token="$TELEGRAM_TOKEN" \
       aoai-endpoint="$AOAI_ENDPOINT"
+ACR="acragentflowdev"
+RG="rg-copilot-usi-demo"
+ACA_APP="brain-copilot-usi-demo-app"
+IDENTITY_CLIENT_ID="c9427d44-98e2-406a-9527-f7fa7059f984"
+TELEGRAM_TOKEN=$(jq -r '.channel_configs.telegram.token' ~/.ohmo/gateway.json)
+AOAI_ENDPOINT=$(grep -m 1 'base_url:' ~/.hermes/config.yaml | awk '{print $2}' | tr -d '\n')
 
+# Build new image (includes webui.py + fastapi)
+az acr build --registry $ACR --image ohmo-gateway:latest .
+
+# Update the running container with new image + WEBUI_PORT
 az containerapp update \
   --name $ACA_APP \
   --resource-group $RG \
-  --image acragentflowdev.azurecr.io/ohmo-gateway:latest \
-  --cpu 0.5 \
-  --memory 1.0Gi \
-  --min-replicas 1 \
-  --max-replicas 1 \
+  --image $ACR.azurecr.io/ohmo-gateway:latest \
   --set-env-vars \
       OHMO_TELEGRAM_TOKEN=secretref:telegram-token \
       ENDPOINT_URL=secretref:aoai-endpoint \
@@ -100,7 +102,24 @@ az containerapp update \
       OHMO_PROVIDER_PROFILE=azure-openai \
       OPENHARNESS_ACTIVE_PROFILE=azure-openai \
       OHMO_PERMISSION_MODE=full_auto \
-      OHMO_LOG_LEVEL=INFO
+      OHMO_LOG_LEVEL=INFO \
+      WEBUI_PORT=8080
+# az containerapp update \
+#   --name $ACA_APP \
+#   --resource-group $RG \
+#   --image acragentflowdev.azurecr.io/ohmo-gateway:latest \
+#   --cpu 0.5 \
+#   --memory 1.0Gi \
+#   --min-replicas 1 \
+#   --max-replicas 1 \
+#   --set-env-vars \
+#       OHMO_TELEGRAM_TOKEN=secretref:telegram-token \
+#       ENDPOINT_URL=secretref:aoai-endpoint \
+#       AZURE_CLIENT_ID="$IDENTITY_CLIENT_ID" \
+#       OHMO_PROVIDER_PROFILE=azure-openai \
+#       OPENHARNESS_ACTIVE_PROFILE=azure-openai \
+#       OHMO_PERMISSION_MODE=full_auto \
+#       OHMO_LOG_LEVEL=INFO
 
 # az containerapp secret set \
 #   --name brain-copilot-usi-demo-app \
@@ -152,7 +171,7 @@ az containerapp create \
   --memory 0.5Gi \
   --min-replicas 1 \
   --max-replicas 3 \
-  --ingress external \
+  --ingress internal \
   --target-port 80 \
   --env-vars \
       GATEWAY_API_URL="https://$GATEWAY_FQDN" 2>/dev/null || \
