@@ -1,16 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConnectionStatus, GatewayEvent, Message } from '../types';
 
-declare global {
-  interface Window { GATEWAY_API_URL?: string; }
-}
-
 export type CreateEventSource = (url: string) => EventSource;
-
-const GATEWAY_API_URL: string =
-  (typeof window !== 'undefined' && window.GATEWAY_API_URL) ||
-  (import.meta.env.VITE_GATEWAY_API_URL as string | undefined) ||
-  '';
 
 const FLUSH_INTERVAL_MS = 50;
 const FLUSH_CHARS = 384;
@@ -58,7 +49,7 @@ export function useGatewaySession(
 
   useEffect(() => {
     if (!sessionId) return;
-    const url = `${GATEWAY_API_URL}/api/stream?session_id=${encodeURIComponent(sessionId)}`;
+    const url = `/api/stream?session_id=${encodeURIComponent(sessionId)}`;
     const es = createEventSource(url);
 
     es.onopen = () => setStatus('connected');
@@ -118,7 +109,7 @@ export function useGatewaySession(
   const send = useCallback((text: string) => {
     setMessages(prev => [...prev, { id: makeId(), role: 'user', text }]);
     setStatus('connected');
-    fetch(`${GATEWAY_API_URL}/api/chat`, {
+    fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId, message: text }),

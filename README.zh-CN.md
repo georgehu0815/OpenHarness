@@ -145,6 +145,13 @@ oh provider add my-endpoint \
 ---
 
 ## 交互模式与 TUI
+Read manager.py
+Read telegram.py
+Read config.py
+Read docker-entrypoint.sh
+Read service.py
+Read queue.py
+
 
 运行：
 

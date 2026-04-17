@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Verify Azure CLI is authenticated
+if ! az account show --query id -o tsv &>/dev/null; then
+  echo "ERROR: Not logged in to Azure. Run: az login"
+  exit 1
+fi
+
 # Read secrets from host configuration
 TELEGRAM_TOKEN=$(jq -r '.channel_configs.telegram.token' ~/.ohmo/gateway.json)
 AOAI_ENDPOINT=$(grep -m 1 'base_url:' ~/.hermes/config.yaml | awk '{print $2}' | tr -d '\n')
@@ -43,8 +49,9 @@ else
 fi
 
 ACR="acragentflowdev"
-echo "Building image via ACR..."
-az acr build --registry "$ACR" --image ohmo-gateway:latest .
+TAG="$(git rev-parse --short HEAD 2>/dev/null || echo dev)-$(date +%s)"
+echo "Building images with tag: $TAG"
+az acr build --registry "$ACR" --image "ohmo-gateway:$TAG" .
 
 rm -rf "$SKILLS_STAGE" "$TPM_STAGE"
 echo "Cleaned up staging directories"
@@ -54,11 +61,17 @@ RG="rg-copilot-usi-demo"
 LOCATION="westus2"
 ACA_ENV="brain-copilot-usi-demo-env"
 ACA_APP="brain-copilot-usi-demo-app"
+WEBUI_APP="brain-ohmo-webui"
 IDENTITY_ID="/subscriptions/ad54c4fb-f585-4033-9e5a-b119d74480b0/resourceGroups/rg-copilot-usi-demo/providers/Microsoft.ManagedIdentity/userAssignedIdentities/copilot-ua-mi"
 IDENTITY_CLIENT_ID="c9427d44-98e2-406a-9527-f7fa7059f984"
 LAW_NAME="copilot-law"
-LOG_ANALYTICS_WORKSPACE_ID=$(az monitor log-analytics workspace show --resource-group $RG --workspace-name $LAW_NAME --query customerId -o tsv)
-LOG_ANALYTICS_KEY=$(az monitor log-analytics workspace get-shared-keys --resource-group $RG --workspace-name $LAW_NAME --query primarySharedKey -o tsv)
+
+# Compute webui CORS origin from ACA environment default domain
+ENV_FQDN=$(az containerapp env show --name "$ACA_ENV" --resource-group "$RG" --query "properties.defaultDomain" --output tsv)
+WEBUI_CORS_ORIGIN="https://${WEBUI_APP}.${ENV_FQDN}"
+echo "WebUI CORS origin: $WEBUI_CORS_ORIGIN"
+# LOG_ANALYTICS_WORKSPACE_ID=$(az monitor log-analytics workspace show --resource-group $RG --workspace-name $LAW_NAME --query customerId -o tsv)
+# LOG_ANALYTICS_KEY=$(az monitor log-analytics workspace get-shared-keys --resource-group $RG --workspace-name $LAW_NAME --query primarySharedKey -o tsv)
 
 # Create Container App Environment
 # az containerapp env create \
@@ -74,28 +87,25 @@ LOG_ANALYTICS_KEY=$(az monitor log-analytics workspace get-shared-keys --resourc
 #   --resource-group $RG \
 #   --user-assigned "$IDENTITY_ID"
 
-az containerapp secret set \
+
+# Deploy gateway (create on first run; secret-set + update on subsequent runs)
+echo "Deploying gateway container..."
+az containerapp create \
   --name $ACA_APP \
   --resource-group $RG \
+  --environment $ACA_ENV \
+  --image "$ACR.azurecr.io/ohmo-gateway:$TAG" \
+  --registry-server $ACR.azurecr.io \
+  --registry-identity $IDENTITY_ID \
+  --user-assigned $IDENTITY_ID \
+  --cpu 0.5 \
+  --memory 1.0Gi \
+  --min-replicas 1 \
+  --max-replicas 1 \
   --secrets \
       telegram-token="$TELEGRAM_TOKEN" \
-      aoai-endpoint="$AOAI_ENDPOINT"
-ACR="acragentflowdev"
-RG="rg-copilot-usi-demo"
-ACA_APP="brain-copilot-usi-demo-app"
-IDENTITY_CLIENT_ID="c9427d44-98e2-406a-9527-f7fa7059f984"
-TELEGRAM_TOKEN=$(jq -r '.channel_configs.telegram.token' ~/.ohmo/gateway.json)
-AOAI_ENDPOINT=$(grep -m 1 'base_url:' ~/.hermes/config.yaml | awk '{print $2}' | tr -d '\n')
-
-# Build new image (includes webui.py + fastapi)
-az acr build --registry $ACR --image ohmo-gateway:latest .
-
-# Update the running container with new image + WEBUI_PORT
-az containerapp update \
-  --name $ACA_APP \
-  --resource-group $RG \
-  --image $ACR.azurecr.io/ohmo-gateway:latest \
-  --set-env-vars \
+      aoai-endpoint="$AOAI_ENDPOINT" \
+  --env-vars \
       OHMO_TELEGRAM_TOKEN=secretref:telegram-token \
       ENDPOINT_URL=secretref:aoai-endpoint \
       AZURE_CLIENT_ID="$IDENTITY_CLIENT_ID" \
@@ -103,28 +113,33 @@ az containerapp update \
       OPENHARNESS_ACTIVE_PROFILE=azure-openai \
       OHMO_PERMISSION_MODE=full_auto \
       OHMO_LOG_LEVEL=INFO \
-      WEBUI_PORT=8080
-# az containerapp update \
-#   --name $ACA_APP \
-#   --resource-group $RG \
-#   --image acragentflowdev.azurecr.io/ohmo-gateway:latest \
-#   --cpu 0.5 \
-#   --memory 1.0Gi \
-#   --min-replicas 1 \
-#   --max-replicas 1 \
-#   --set-env-vars \
-#       OHMO_TELEGRAM_TOKEN=secretref:telegram-token \
-#       ENDPOINT_URL=secretref:aoai-endpoint \
-#       AZURE_CLIENT_ID="$IDENTITY_CLIENT_ID" \
-#       OHMO_PROVIDER_PROFILE=azure-openai \
-#       OPENHARNESS_ACTIVE_PROFILE=azure-openai \
-#       OHMO_PERMISSION_MODE=full_auto \
-#       OHMO_LOG_LEVEL=INFO
-
-# az containerapp secret set \
-#   --name brain-copilot-usi-demo-app \
-#   --resource-group rg-copilot-usi-demo \
-#   --secrets aoai-endpoint="$(grep -m 1 'base_url:' ~/.hermes/config.yaml | awk '{print $2}')"
+      WEBUI_PORT=8080 \
+      WEBUI_CORS_ORIGINS="$WEBUI_CORS_ORIGIN" 2>/dev/null || {
+  az containerapp identity assign \
+    --name $ACA_APP \
+    --resource-group $RG \
+    --user-assigned $IDENTITY_ID
+  az containerapp secret set \
+    --name $ACA_APP \
+    --resource-group $RG \
+    --secrets \
+        telegram-token="$TELEGRAM_TOKEN" \
+        aoai-endpoint="$AOAI_ENDPOINT"
+  az containerapp update \
+    --name $ACA_APP \
+    --resource-group $RG \
+    --image "$ACR.azurecr.io/ohmo-gateway:$TAG" \
+    --set-env-vars \
+        OHMO_TELEGRAM_TOKEN=secretref:telegram-token \
+        ENDPOINT_URL=secretref:aoai-endpoint \
+        AZURE_CLIENT_ID="$IDENTITY_CLIENT_ID" \
+        OHMO_PROVIDER_PROFILE=azure-openai \
+        OPENHARNESS_ACTIVE_PROFILE=azure-openai \
+        OHMO_PERMISSION_MODE=full_auto \
+        OHMO_LOG_LEVEL=INFO \
+        WEBUI_PORT=8080 \
+        WEBUI_CORS_ORIGINS="$WEBUI_CORS_ORIGIN"
+}
 
 # check status
 az containerapp show \
@@ -151,11 +166,10 @@ GATEWAY_FQDN=$(az containerapp show \
 echo "Gateway internal FQDN: $GATEWAY_FQDN"
 
 # Build and deploy web app
-WEBUI_APP="ohmo-webui"
 echo "Building web app image..."
 az acr build \
   --registry "$ACR" \
-  --image ohmo-webui:latest \
+  --image "ohmo-webui:$TAG" \
   --file frontend/web/Dockerfile \
   .
 
@@ -164,21 +178,21 @@ az containerapp create \
   --name "$WEBUI_APP" \
   --resource-group "$RG" \
   --environment "$ACA_ENV" \
-  --image "$ACR.azurecr.io/ohmo-webui:latest" \
+  --image "$ACR.azurecr.io/ohmo-webui:$TAG" \
   --registry-server "$ACR.azurecr.io" \
   --registry-identity "$IDENTITY_ID" \
   --cpu 0.25 \
   --memory 0.5Gi \
   --min-replicas 1 \
   --max-replicas 3 \
-  --ingress internal \
+  --ingress external \
   --target-port 80 \
   --env-vars \
       GATEWAY_API_URL="https://$GATEWAY_FQDN" 2>/dev/null || \
 az containerapp update \
   --name "$WEBUI_APP" \
   --resource-group "$RG" \
-  --image "$ACR.azurecr.io/ohmo-webui:latest" \
+  --image "$ACR.azurecr.io/ohmo-webui:$TAG" \
   --set-env-vars \
       GATEWAY_API_URL="https://$GATEWAY_FQDN"
 
