@@ -84,6 +84,10 @@ class WebUIChannel(BaseChannel):
                 allow_headers=["*"],
             )
 
+        @app.get("/api/health")
+        async def get_health() -> dict:
+            return {"status": "ok"}
+
         @app.post("/api/chat", status_code=202)
         async def post_chat(request: Request) -> dict:
             body = await request.json()
