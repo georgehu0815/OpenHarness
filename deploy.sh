@@ -113,3 +113,59 @@ az containerapp show \
   --resource-group $RG \
   --query "properties.runningStatus" \
   --output tsv
+
+# Enable internal ingress on gateway for the WebUI API
+echo "Enabling internal ingress on gateway (port 8080)..."
+az containerapp ingress enable \
+  --name $ACA_APP \
+  --resource-group $RG \
+  --type internal \
+  --target-port 8080 \
+  --transport http
+
+GATEWAY_FQDN=$(az containerapp show \
+  --name $ACA_APP \
+  --resource-group $RG \
+  --query "properties.configuration.ingress.fqdn" \
+  --output tsv)
+
+echo "Gateway internal FQDN: $GATEWAY_FQDN"
+
+# Build and deploy web app
+WEBUI_APP="ohmo-webui"
+echo "Building web app image..."
+az acr build \
+  --registry "$ACR" \
+  --image ohmo-webui:latest \
+  --file frontend/web/Dockerfile \
+  .
+
+echo "Deploying web app container..."
+az containerapp create \
+  --name "$WEBUI_APP" \
+  --resource-group "$RG" \
+  --environment "$ACA_ENV" \
+  --image "$ACR.azurecr.io/ohmo-webui:latest" \
+  --registry-server "$ACR.azurecr.io" \
+  --registry-identity "$IDENTITY_ID" \
+  --cpu 0.25 \
+  --memory 0.5Gi \
+  --min-replicas 1 \
+  --max-replicas 3 \
+  --ingress external \
+  --target-port 80 \
+  --env-vars \
+      GATEWAY_API_URL="https://$GATEWAY_FQDN" 2>/dev/null || \
+az containerapp update \
+  --name "$WEBUI_APP" \
+  --resource-group "$RG" \
+  --image "$ACR.azurecr.io/ohmo-webui:latest" \
+  --set-env-vars \
+      GATEWAY_API_URL="https://$GATEWAY_FQDN"
+
+WEBUI_FQDN=$(az containerapp show \
+  --name "$WEBUI_APP" \
+  --resource-group "$RG" \
+  --query "properties.configuration.ingress.fqdn" \
+  --output tsv)
+echo "WebUI available at: https://$WEBUI_FQDN"
