@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Read secrets from host configuration
+TELEGRAM_TOKEN=$(jq -r '.channel_configs.telegram.token' ~/.ohmo/gateway.json)
+AOAI_ENDPOINT=$(grep -m 1 'base_url:' ~/.hermes/config.yaml | awk '{print $2}' | tr -d '\n')
+echo "Deploying ohmo gateway to Azure Container Apps..."
+
+# -- Stage host skills into build context, build image, then clean up --
+SKILLS_SRC="${HOME}/.openharness/skills"
+SKILLS_STAGE="$(pwd)/skills"
+
+echo "Staging skills from $SKILLS_SRC..."
+rm -rf "$SKILLS_STAGE"
+if [ -d "$SKILLS_SRC" ]; then
+    cp -r "$SKILLS_SRC" "$SKILLS_STAGE"
+    echo "  Staged: $(ls "$SKILLS_STAGE" | tr '\n' ' ')"
+else
+    mkdir -p "$SKILLS_STAGE"
+    echo "  No skills found at $SKILLS_SRC — building with empty skills/"
+fi
+
+# az acr build \
+#   --registry acragentflowdev \
+#   --image ohmo-gateway:latest \
+#   .
+
+
+# -- Stage tpm CLI into build context -------------------------------------
+TPM_SRC="/Users/ghu/work/CatalystDataLakeAgent/Demo_FabricDataAgent_TPM"
+TPM_STAGE="$(pwd)/tpm"
+
+echo "Staging tpm CLI from $TPM_SRC..."
+rm -rf "$TPM_STAGE"
+if [ -d "$TPM_SRC" ]; then
+    mkdir -p "$TPM_STAGE"
+    cp "$TPM_SRC/tpm_cli.py" "$TPM_STAGE/"
+    cp "$TPM_SRC/requirements.txt" "$TPM_STAGE/"
+    cp -r "$TPM_SRC/src" "$TPM_STAGE/"
+    cp -r "$TPM_SRC/prompts" "$TPM_STAGE/"
+    cp "$TPM_SRC/.vscode/mcp.json" "$TPM_STAGE/"
+    echo "  Staged tpm_cli.py + src/ + prompts/ + mcp.json"
+else
+    echo "  WARNING: tpm source not found at $TPM_SRC — tpm will not be installed"
+    mkdir -p "$TPM_STAGE"
+    echo "requests>=2.28.0" > "$TPM_STAGE/requirements.txt"
+fi
+
+ACR="acragentflowdev"
+echo "Building image via ACR..."
+az acr build --registry "$ACR" --image ohmo-gateway:latest .
+
+rm -rf "$SKILLS_STAGE" "$TPM_STAGE"
+echo "Cleaned up staging directories"
+
+# Shared variables
+RG="rg-copilot-usi-demo"
+LOCATION="westus2"
+ACA_ENV="brain-copilot-usi-demo-env"
+ACA_APP="brain-copilot-usi-demo-app"
+IDENTITY_ID="/subscriptions/ad54c4fb-f585-4033-9e5a-b119d74480b0/resourceGroups/rg-copilot-usi-demo/providers/Microsoft.ManagedIdentity/userAssignedIdentities/copilot-ua-mi"
+IDENTITY_CLIENT_ID="c9427d44-98e2-406a-9527-f7fa7059f984"
+LAW_NAME="copilot-law"
+LOG_ANALYTICS_WORKSPACE_ID=$(az monitor log-analytics workspace show --resource-group $RG --workspace-name $LAW_NAME --query customerId -o tsv)
+LOG_ANALYTICS_KEY=$(az monitor log-analytics workspace get-shared-keys --resource-group $RG --workspace-name $LAW_NAME --query primarySharedKey -o tsv)
+
+# Create Container App Environment
+# az containerapp env create \
+#   --name $ACA_ENV \
+#   --resource-group $RG \
+#   --location $LOCATION \
+#   --logs-workspace-id "$LOG_ANALYTICS_WORKSPACE_ID" \
+#   --logs-workspace-key "$LOG_ANALYTICS_KEY"
+
+# Assign user-assigned identity to the environment
+# az containerapp env identity assign \
+#   --name $ACA_ENV \
+#   --resource-group $RG \
+#   --user-assigned "$IDENTITY_ID"
+
+az containerapp secret set \
+  --name $ACA_APP \
+  --resource-group $RG \
+  --secrets \
+      telegram-token="$TELEGRAM_TOKEN" \
+      aoai-endpoint="$AOAI_ENDPOINT"
+
+az containerapp update \
+  --name $ACA_APP \
+  --resource-group $RG \
+  --image acragentflowdev.azurecr.io/ohmo-gateway:latest \
+  --cpu 0.5 \
+  --memory 1.0Gi \
+  --min-replicas 1 \
+  --max-replicas 1 \
+  --set-env-vars \
+      OHMO_TELEGRAM_TOKEN=secretref:telegram-token \
+      ENDPOINT_URL=secretref:aoai-endpoint \
+      AZURE_CLIENT_ID="$IDENTITY_CLIENT_ID" \
+      OHMO_PROVIDER_PROFILE=azure-openai \
+      OPENHARNESS_ACTIVE_PROFILE=azure-openai \
+      OHMO_PERMISSION_MODE=full_auto \
+      OHMO_LOG_LEVEL=INFO
+
+# az containerapp secret set \
+#   --name brain-copilot-usi-demo-app \
+#   --resource-group rg-copilot-usi-demo \
+#   --secrets aoai-endpoint="$(grep -m 1 'base_url:' ~/.hermes/config.yaml | awk '{print $2}')"
+
+# check status
+az containerapp show \
+  --name $ACA_APP \
+  --resource-group $RG \
+  --query "properties.runningStatus" \
+  --output tsv

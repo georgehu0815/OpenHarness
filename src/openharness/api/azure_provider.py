@@ -49,7 +49,7 @@ class AzureOpenAIClient:
     """
 
     def __init__(self, *, timeout: float | None = None) -> None:
-        from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+        from azure.identity import DefaultAzureCredential, ManagedIdentityCredential, get_bearer_token_provider
 
         endpoint = os.getenv("ENDPOINT_URL")
         if not endpoint:
@@ -60,8 +60,10 @@ class AzureOpenAIClient:
         self._endpoint = endpoint
         self._deployment = os.getenv("DEPLOYMENT_NAME", _DEPLOYMENT_DEFAULT)
         self._timeout = timeout
+        client_id = os.getenv("IDENTITY_CLIENT_ID")
+        credential = ManagedIdentityCredential(client_id=client_id) if client_id else DefaultAzureCredential()
         self._token_provider = get_bearer_token_provider(
-            DefaultAzureCredential(),
+            credential,
             _COGNITIVE_SERVICES_SCOPE,
         )
         self._client: Any = None
