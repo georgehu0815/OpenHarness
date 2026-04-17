@@ -89,6 +89,11 @@ class MochatConfig(BaseChannelConfig):
     token: str = ""
 
 
+class WebUIConfig(BaseChannelConfig):
+    port: int = 8080
+    cors_origins: list[str] = Field(default_factory=list)
+
+
 class ChannelConfigs(_CompatModel):
     send_progress: bool = True
     send_tool_hints: bool = True
@@ -102,6 +107,7 @@ class ChannelConfigs(_CompatModel):
     matrix: MatrixConfig = Field(default_factory=MatrixConfig)
     whatsapp: WhatsAppConfig = Field(default_factory=WhatsAppConfig)
     mochat: MochatConfig = Field(default_factory=MochatConfig)
+    webui: WebUIConfig = Field(default_factory=WebUIConfig)
 
 
 class Config(_CompatModel):
