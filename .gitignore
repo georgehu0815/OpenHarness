@@ -27,6 +27,13 @@ htmlcov/
 # React TUI frontend
 frontend/terminal/node_modules/
 
+# WebUI frontend
+frontend/web/node_modules/
+frontend/web/dist/
+
+# Superpowers brainstorm artifacts
+.superpowers/
+
 # User data (never commit API keys or session data)
 .openharness/
 react_tui_smoke.txt
