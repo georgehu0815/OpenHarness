@@ -150,6 +150,18 @@ class ChannelManager:
             except ImportError as e:
                 logger.warning("Matrix channel not available: %s", e)
 
+        # WebUI channel
+        if self.config.channels.webui.enabled:
+            try:
+                from openharness.channels.impl.webui import WebUIChannel
+                self.channels["webui"] = WebUIChannel(
+                    self.config.channels.webui,
+                    self.bus,
+                )
+                logger.info("WebUI channel enabled on port %d", self.config.channels.webui.port)
+            except ImportError as e:
+                logger.warning("WebUI channel not available: %s", e)
+
         self._validate_allow_from()
 
     def _validate_allow_from(self) -> None:
